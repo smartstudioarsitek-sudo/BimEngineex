@@ -38,42 +38,55 @@ def extract_text_from_pdf(uploaded_file):
 
 def ai_parse_structural_data(text_content, api_key):
     """
-    Menggunakan Gemini untuk mencari parameter struktur (fc, fy, dimensi) 
-    dari teks laporan yang berantakan.
+    Super-Extractor: Mampu membaca Tabel BOQ matang maupun menghitung dari Teks/Legenda DED.
     """
     if not api_key:
         return None
 
     genai.configure(api_key=api_key)
+    # Gunakan flash karena cepat dan tokennya besar
     model = genai.GenerativeModel('gemini-1.5-flash')
     
+    # SUPER PROMPT (SOP Quantity Surveyor AI)
     prompt = f"""
-    Bertindaklah sebagai Data Entry Engineer.
-    Tugas: Ekstrak parameter struktur beton dari teks laporan berikut menjadi format JSON.
+    Anda adalah Senior Quantity Surveyor (QS) dan AI Data Gatekeeper.
+    Tugas Anda: Ekstrak informasi Bill of Quantities (BOQ) dari teks dokumen yang diberikan. 
     
-    Cari nilai-nilai ini (jika tidak ada, isi null):
-    - fc (Mutu Beton dalam MPa. Jika K-xxx, konversi ke MPa: K/10 * 0.83)
-    - fy (Mutu Baja Tulangan dalam MPa)
-    - b_kolom (Lebar kolom dalam mm)
-    - h_kolom (Tinggi kolom dalam mm)
-    - diameter_tulangan (Diameter besi utama dalam mm)
-    - jumlah_tulangan (Jumlah batang besi)
-    - pu (Beban Aksial dalam kN)
-    - mu (Momen dalam kNm)
-
-    Teks Laporan:
-    {text_content[:4000]}  # Batasi karakter agar hemat token
+    Dokumen ini bisa memiliki 2 kemungkinan format:
+    SKENARIO 1 (TABEL BOQ): Jika teks berisi tabel RAB/BOQ (ada Uraian Pekerjaan dan Volume), langsung ekstrak nama pekerjaan dan angka volumenya secara presisi.
+    SKENARIO 2 (DED / LAPORAN DESAIN): Jika teks berisi legenda dimensi (misal K1=400x400) dan rekap jumlah tiang/balok, hitung estimasi volumenya (Panjang x Lebar x Tinggi x Jumlah). Jika ada data parameter struktur (fc, fy, Mu, Pu), abaikan saja.
     
-    Output WAJIB JSON murni tanpa markdown:
-    {{
-        "fc": 25.0,
-        "fy": 400.0,
-        ...
-    }}
+    Teks Dokumen:
+    ---
+    {text_content[:20000]} # Limitasi dinaikkan agar muat membaca PDF BOQ yang panjang
+    ---
+    
+    INSTRUKSI OUTPUT:
+    Kembalikan HANYA format array JSON murni, tanpa teks pembuka, tanpa penutup, tanpa block markdown (```json).
+    Format Wajib:
+    [
+        {{"Kategori": "Pekerjaan Tanah", "Nama": "Galian Tanah Pondasi", "Volume": 166.37}},
+        {{"Kategori": "Struktur Beton", "Nama": "Kolom K1 (400x400)", "Volume": 9.22}}
+    ]
+    *Catatan: Pastikan 'Volume' adalah angka float, BUKAN string. Jika volume gagal didapat, berikan nilai 1.0.
     """
     
     try:
         response = model.generate_content(prompt)
+        # Pembersihan ekstra agar JSON tidak error saat di-load
+        clean_json = response.text.replace("```json", "").replace("```", "").strip()
+        
+        # Ekstrak array JSON menggunakan Regex jika AI bandel menyelipkan teks penjelasan
+        match = re.search(r'\[.*\]', clean_json, re.DOTALL)
+        if match:
+            clean_json = match.group(0)
+            
+        data_boq = json.loads(clean_json)
+        return data_boq
+        
+    except Exception as e:
+        print(f"Gagal memparsing respons AI ke JSON: {e}")
+        return None
         clean_json = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(clean_json)
     except Exception as e:
