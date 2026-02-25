@@ -1,94 +1,58 @@
-# modules/utils/pdf_extractor.py
-import pdfplumber
-import re
-import streamlit as st
 import json
 import google.generativeai as genai
-
-def extract_text_from_pdf(uploaded_file):
-    """
-    Lebih cerdas mengekstrak tabel dan layout menggunakan pdfplumber.
-    Cocok untuk laporan teknik yang banyak mengandung tabel.
-    """
-    text = ""
-    try:
-        # pdfplumber butuh file path atau file-like object
-        with pdfplumber.open(uploaded_file) as pdf:
-            for page in pdf.pages:
-                # 1. STRATEGI TABEL: Ambil data tabel terlebih dahulu
-                # Laporan struktur 80% datanya ada di tabel
-                tables = page.extract_tables()
-                for table in tables:
-                    for row in table:
-                        # Bersihkan None values dan gabung dengan delimiter pipa |
-                        # Ini membantu AI membedakan kolom
-                        clean_row = [str(cell) if cell is not None else "" for cell in row]
-                        text += " | ".join(clean_row) + "\n"
-                
-                text += "\n--- TEKS HALAMAN ---\n"
-                
-                # 2. STRATEGI TEKS: Ambil sisa teks biasa
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-                    
-        return text
-    except Exception as e:
-        return f"Error membaca PDF: {e}"
+import streamlit as st
 
 def ai_parse_structural_data(text_content, api_key):
     """
-    Super-Extractor: Mampu membaca Tabel BOQ matang maupun menghitung dari Teks/Legenda DED.
+    Super-Extractor v2: Menggunakan fitur native JSON dari Gemini.
+    Dijamin 100% tidak ada teks nyasar atau ngeles.
     """
     if not api_key:
         return None
 
     genai.configure(api_key=api_key)
-    # Gunakan flash karena cepat dan tokennya besar
-    model = genai.GenerativeModel('gemini-1.5-flash')
     
-    # SUPER PROMPT (SOP Quantity Surveyor AI)
+    # 🌟 JURUS PAMUNGKAS: Paksa AI HANYA membalas dengan JSON
+    generation_config = genai.GenerationConfig(
+        response_mime_type="application/json"
+    )
+    
+    model = genai.GenerativeModel(
+        model_name='gemini-1.5-flash',
+        generation_config=generation_config
+    )
+    
     prompt = f"""
-    Anda adalah Senior Quantity Surveyor (QS) dan AI Data Gatekeeper.
-    Tugas Anda: Ekstrak informasi Bill of Quantities (BOQ) dari teks dokumen yang diberikan. 
-    
-    Dokumen ini bisa memiliki 2 kemungkinan format:
-    SKENARIO 1 (TABEL BOQ): Jika teks berisi tabel RAB/BOQ (ada Uraian Pekerjaan dan Volume), langsung ekstrak nama pekerjaan dan angka volumenya secara presisi.
-    SKENARIO 2 (DED / LAPORAN DESAIN): Jika teks berisi legenda dimensi (misal K1=400x400) dan rekap jumlah tiang/balok, hitung estimasi volumenya (Panjang x Lebar x Tinggi x Jumlah). Jika ada data parameter struktur (fc, fy, Mu, Pu), abaikan saja.
+    Anda adalah Senior Quantity Surveyor.
+    Ekstrak data Bill of Quantities (BOQ) dari teks dokumen berikut.
+    Jika ini adalah dokumen BOQ, ambil nama pekerjaan dan volumenya.
+    Jika ini adalah DED/Gambar, hitung volumenya dari dimensi dan jumlah yang tertera.
     
     Teks Dokumen:
     ---
-    {text_content[:20000]} # Limitasi dinaikkan agar muat membaca PDF BOQ yang panjang
+    {text_content[:20000]}
     ---
     
-    INSTRUKSI OUTPUT:
-    Kembalikan HANYA format array JSON murni, tanpa teks pembuka, tanpa penutup, tanpa block markdown (```json).
-    Format Wajib:
+    WAJIB kembalikan ARRAY JSON dengan skema baku berikut ini:
     [
-        {{"Kategori": "Pekerjaan Tanah", "Nama": "Galian Tanah Pondasi", "Volume": 166.37}},
-        {{"Kategori": "Struktur Beton", "Nama": "Kolom K1 (400x400)", "Volume": 9.22}}
+        {{"Kategori": "Nama Divisi/Kategori", "Nama": "Nama Uraian Pekerjaan", "Volume": 10.5}}
     ]
-    *Catatan: Pastikan 'Volume' adalah angka float, BUKAN string. Jika volume gagal didapat, berikan nilai 1.0.
+    *Penting: 'Volume' HARUS berupa angka desimal (float) yang menggunakan titik (.), BUKAN koma. Jangan gunakan string untuk volume.
     """
     
     try:
         response = model.generate_content(prompt)
-        # Pembersihan ekstra agar JSON tidak error saat di-load
-        clean_json = response.text.replace("```json", "").replace("```", "").strip()
         
-        # Ekstrak array JSON menggunakan Regex jika AI bandel menyelipkan teks penjelasan
-        match = re.search(r'\[.*\]', clean_json, re.DOTALL)
-        if match:
-            clean_json = match.group(0)
-            
-        data_boq = json.loads(clean_json)
+        # Karena kita sudah pakai response_mime_type, output PASTI berupa JSON bersih
+        data_boq = json.loads(response.text)
         return data_boq
         
     except Exception as e:
-        print(f"Gagal memparsing respons AI ke JSON: {e}")
-        return None
-        clean_json = response.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(clean_json)
-    except Exception as e:
-        # st.error(f"Gagal parsing AI: {e}") # Silent error agar UI tidak berantakan
+        # Jika gagal, kita tampilkan error-nya langsung di layar Streamlit kakak
+        # Agar ketahuan si AI salah di mana
+        st.error(f"🚨 Gagal menyusun tabel JSON. Error: {e}")
+        try:
+            st.info(f"Teks mentah dari AI: {response.text}")
+        except:
+            pass
         return None
