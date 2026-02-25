@@ -683,25 +683,61 @@ if selected_menu == "🤖 AI Assistant":
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-    # --- RENDER TABEL VALIDASI HITL (Di Luar Try-Except & Chat Bubble) ---
+    # Pastikan modul AHSP di-import di bagian atas file jika belum ada
+    from modules.cost.libs_ahsp import AHSP_Engine
+
+    # --- RENDER TABEL VALIDASI HITL (Human-in-the-Loop) ---
     if 'draft_boq_data' in st.session_state and not st.session_state['draft_boq_data'].empty:
-        st.markdown("### 🕵️ Validasi Ekstraksi AI (Human-in-the-Loop)")
-        st.info("⚠️ Silakan periksa hasil ekstraksi Vision LLM. Anda dapat mengedit data secara manual sebelum masuk ke RAB.")
+        st.markdown("### 🕵️ Validasi & Pemetaan AHSP (Data Gatekeeper)")
+        st.info("⚠️ Jodohkan item pekerjaan dengan database AHSP agar harga tidak Rp 0 di Excel.")
         
+        # 1. Tarik daftar nama AHSP yang VALID dari database
+        try:
+            engine_ahsp = AHSP_Engine()
+            daftar_ahsp = [resep.get('desc', kode) for kode, resep in engine_ahsp.koefisien.items()]
+            daftar_ahsp.insert(0, "- Pilih Referensi AHSP -") # Opsi default
+        except Exception as e:
+            daftar_ahsp = ["- Error Load AHSP -"]
+            st.error(f"Gagal memuat AHSP: {e}")
+
+        df_draft = st.session_state['draft_boq_data'].copy()
+        
+        # Tambahkan kolom "Referensi_AHSP" jika belum ada
+        if "Referensi_AHSP" not in df_draft.columns:
+            df_draft["Referensi_AHSP"] = "- Pilih Referensi AHSP -"
+
+        # 2. Render Data Editor dengan Dropdown (Selectbox)
         edited_df = st.data_editor(
-            st.session_state['draft_boq_data'],
+            df_draft,
+            column_config={
+                "Kategori": st.column_config.TextColumn("Kategori Pekerjaan"),
+                "Nama": st.column_config.TextColumn("Nama Item (Dari PDF/BIM)"),
+                "Volume": st.column_config.NumberColumn("Volume", format="%.2f"),
+                # INI KUNCINYA: Memaksa user memilih dari daftar AHSP yang ada
+                "Referensi_AHSP": st.column_config.SelectboxColumn(
+                    "Pilih Referensi AHSP 🎯",
+                    help="Pilih referensi AHSP yang cocok dari database",
+                    options=daftar_ahsp,
+                    required=True
+                )
+            },
             num_rows="dynamic",
             use_container_width=True,
             key="hitl_editor"
         )
         
-        if st.button("✅ Setujui & Masukkan ke Memori RAB", type="primary"):
-            st.session_state['real_boq_data'] = edited_df
-            st.session_state['draft_boq_data'] = pd.DataFrame()
-            st.success("Data divalidasi dan terkunci untuk ekspor 7-Tab Excel!")
-            st.rerun()
-
-  
+        # 3. Tombol Kunci Data
+        if st.button("✅ Kunci Data & Siapkan Excel", type="primary"):
+            # Validasi apakah masih ada item yang belum dijodohkan
+            if "- Pilih Referensi AHSP -" in edited_df["Referensi_AHSP"].values:
+                st.warning("⚠️ Masih ada item yang belum dipilih referensi AHSP-nya!")
+            else:
+                st.session_state['real_boq_data'] = edited_df
+                # Kosongkan draft agar tabel ini tertutup dan siap diekspor
+                st.session_state['draft_boq_data'] = pd.DataFrame()
+                st.success("✅ Data divalidasi! Silakan klik tombol 'Download Excel RAB' di sidebar.")
+                st.rerun()
+     
                     
     # ==========================================
     # MODUL AUTO-CHAIN GENERATOR (INTEGRATED)
@@ -1315,6 +1351,7 @@ with st.sidebar:
         st.error(f"Gagal menyiapkan Excel: {e}")
         
    
+
 
 
 
