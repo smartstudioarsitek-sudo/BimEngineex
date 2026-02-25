@@ -498,22 +498,35 @@ if selected_menu == "🤖 AI Assistant":
                     if f.name.lower().endswith(('.png','.jpg','.jpeg')): 
                         full_prompt.append(Image.open(f))
                         
-                    # 2. HANDLING DOKUMEN TEXT (PDF DIBUAT HIGH-RES)
+                    # 2. HANDLING DOKUMEN TEXT (PDF KE TABEL BOQ/GATEKEEPER)
                     elif f.name.lower().endswith('.pdf'):
-                        import fitz  # PyMuPDF
-                        with st.spinner("🔍 Menajamkan resolusi gambar PDF untuk AI..."):
-                            pdf_doc = fitz.open(stream=f.getvalue(), filetype="pdf")
-                            txt = ""
-                            for page_num in range(len(pdf_doc)):
-                                page = pdf_doc.load_page(page_num)
-                                txt += page.get_text()
-                                # Render resolusi tinggi
-                                mat = fitz.Matrix(3, 3) 
-                                pix = page.get_pixmap(matrix=mat)
-                                img_data = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                                full_prompt.append(img_data) 
-                            full_prompt[0] += f"\n\n[FILE PDF: {f.name}]\n{txt}"
-                        
+                        with st.spinner(f"🔍 Membaca dan mengekstrak data dari {f.name} (Mohon tunggu)..."):
+                            try:
+                                # Panggil mesin Super Prompt yang sudah kita buat
+                                from modules.utils import pdf_extractor
+                                
+                                # A. Ekstrak teks & tabel menggunakan pdfplumber
+                                raw_text = pdf_extractor.extract_text_from_pdf(f)
+                                
+                                # B. Kirim ke Gemini Super Prompt untuk diubah jadi JSON
+                                api_key_aktif = get_api_key() # Ambil API key yang sedang dipakai
+                                hasil_json = pdf_extractor.ai_parse_structural_data(raw_text, api_key_aktif)
+                                
+                                # C. Jika berhasil, lempar langsung ke Tabel Validasi (Gatekeeper)
+                                if hasil_json and isinstance(hasil_json, list):
+                                    st.session_state['draft_boq_data'] = pd.DataFrame(hasil_json)
+                                    
+                                    # Notifikasi sukses di layar chat
+                                    with st.chat_message("assistant"):
+                                        st.success(f"🎯 [AI-QS] Berhasil mengekstrak {len(hasil_json)} item pekerjaan dari PDF! Silakan cek tabel validasi di bawah.")
+                                else:
+                                    # Fallback (Cadangan): Jika PDF bukan tabel RAB/DED, masukkan sebagai teks chat biasa
+                                    st.warning("AI tidak mendeteksi format tabel BOQ/DED. Membaca sebagai dokumen biasa.")
+                                    full_prompt[0] += f"\n\n[ISI DOKUMEN PDF: {f.name}]\n{raw_text[:3000]}"
+                                    
+                            except Exception as e:
+                                st.error(f"Gagal memproses PDF: {e}")
+                                            
                     # 3. HANDLING SPECIAL FILES (CAD/GIS)
                     elif f.name.lower().endswith(('.dxf', '.dwg', '.geojson', '.kml', '.kmz', '.gpx', '.zip', '.tif', '.tiff', '.dem')):
                     
@@ -1335,6 +1348,7 @@ with st.sidebar:
         st.error(f"Gagal menyiapkan Excel: {e}")
         
    
+
 
 
 
