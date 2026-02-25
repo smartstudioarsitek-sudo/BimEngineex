@@ -502,31 +502,37 @@ if selected_menu == "🤖 AI Assistant":
                     elif f.name.lower().endswith('.pdf'):
                         with st.spinner(f"🔍 Membaca dan mengekstrak data dari {f.name} (Mohon tunggu)..."):
                             try:
-                                # Panggil mesin Super Prompt yang sudah kita buat
+                                import fitz  # PyMuPDF terbukti lebih tangguh membaca teks
                                 from modules.utils import pdf_extractor
                                 
-                                # A. Ekstrak teks & tabel menggunakan pdfplumber
-                                raw_text = pdf_extractor.extract_text_from_pdf(f)
+                                # A. Ekstrak teks menggunakan PyMuPDF (Anti-Gagal)
+                                pdf_doc = fitz.open(stream=f.getvalue(), filetype="pdf")
+                                raw_text = ""
+                                for page_num in range(len(pdf_doc)):
+                                    page = pdf_doc.load_page(page_num)
+                                    raw_text += page.get_text()
                                 
-                                # B. Kirim ke Gemini Super Prompt untuk diubah jadi JSON
-                                api_key_aktif = get_api_key() # Ambil API key yang sedang dipakai
+                                # B. Kirim teks matang ke Gemini Super Prompt untuk diubah jadi JSON
+                                api_key_aktif = get_api_key()
                                 hasil_json = pdf_extractor.ai_parse_structural_data(raw_text, api_key_aktif)
                                 
-                                # C. Jika berhasil, lempar langsung ke Tabel Validasi (Gatekeeper)
-                                if hasil_json and isinstance(hasil_json, list):
+                                # C. Gatekeeper: Jika JSON berhasil dibuat, munculkan Tabel Validasi
+                                if hasil_json and isinstance(hasil_json, list) and len(hasil_json) > 0:
+                                    import pandas as pd
+                                    # Simpan ke session state agar UI tabel Dropdown AHSP muncul
                                     st.session_state['draft_boq_data'] = pd.DataFrame(hasil_json)
                                     
                                     # Notifikasi sukses di layar chat
                                     with st.chat_message("assistant"):
-                                        st.success(f"🎯 [AI-QS] Berhasil mengekstrak {len(hasil_json)} item pekerjaan dari PDF! Silakan cek tabel validasi di bawah.")
+                                        st.success(f"🎯 [AI-QS] Mantap! Berhasil mengekstrak {len(hasil_json)} item pekerjaan dari PDF. Silakan cek tabel penjodohan AHSP di bawah.")
                                 else:
-                                    # Fallback (Cadangan): Jika PDF bukan tabel RAB/DED, masukkan sebagai teks chat biasa
-                                    st.warning("AI tidak mendeteksi format tabel BOQ/DED. Membaca sebagai dokumen biasa.")
-                                    full_prompt[0] += f"\n\n[ISI DOKUMEN PDF: {f.name}]\n{raw_text[:3000]}"
+                                    # Fallback: Jika gagal jadi tabel, masukkan sebagai konteks chat biasa
+                                    st.warning("⚠️ AI gagal menyusun tabel otomatis. Membaca sebagai dokumen biasa.")
+                                    full_prompt[0] += f"\n\n[ISI DOKUMEN PDF: {f.name}]\n{raw_text[:5000]}"
                                     
                             except Exception as e:
                                 st.error(f"Gagal memproses PDF: {e}")
-                                            
+                                                                
                     # 3. HANDLING SPECIAL FILES (CAD/GIS)
                     elif f.name.lower().endswith(('.dxf', '.dwg', '.geojson', '.kml', '.kmz', '.gpx', '.zip', '.tif', '.tiff', '.dem')):
                     
@@ -1348,6 +1354,7 @@ with st.sidebar:
         st.error(f"Gagal menyiapkan Excel: {e}")
         
    
+
 
 
 
