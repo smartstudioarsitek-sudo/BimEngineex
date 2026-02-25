@@ -277,67 +277,51 @@ def render_project_file_manager():
                 st.error(f"Error loading: {e}")
 
 # ==========================================
-# 4. ENGINE EKSEKUSI KODE (SAFE MODE)
+# 4. ENGINE EKSEKUSI KODE (SAFE MODE - AUDIT COMPLIANT)
 # ==========================================
 if 'shared_execution_vars' not in st.session_state:
     st.session_state.shared_execution_vars = {}
 
 def execute_generated_code(code_str, file_ifc_path=None):
+    """
+    Fungsi eksekusi dinamis (exec) DIMATIKAN secara permanen 
+    sesuai rekomendasi Audit Forensik (Pencegahan Server Deadlock & Injection).
+    """
     try:
-        local_vars = st.session_state.shared_execution_vars.copy()
+        # Kita tetap memperbolehkan UI mengekstrak variabel statis jika diperlukan,
+        # tetapi DILARANG KERAS mengeksekusi instruksi dari AI menggunakan exec().
         
-        # Helper function untuk parsing rupiah
-        def parse_rupiah(txt):
-            if isinstance(txt, (int, float)): return txt
-            if isinstance(txt, str):
-                clean = txt.replace("Rp", "").replace(" ", "").replace(".", "").replace(",", ".")
-                try: return float(clean)
-                except: return 0
-            return 0
-
-        # Inject library & helper (Memastikan kode AI bisa akses semua modul)
-        library_kits = {
-            "pd": pd, "np": np, "plt": plt, "st": st, "px": px, "go": go,
-            "parse_rupiah": parse_rupiah,
-            "libs_sni": libs_sni, "libs_baja": libs_baja, "libs_bridge": libs_bridge,
-            "libs_gempa": libs_gempa, "libs_hidrologi": libs_hidrologi,
-            "libs_irigasi": libs_irigasi, "libs_bendung": libs_bendung, "libs_jiat": libs_jiat,
-            "libs_ahsp": libs_ahsp, "libs_rab_engine": libs_rab_engine,
-            "libs_optimizer": libs_optimizer, "libs_research": libs_research,
-            "libs_arch": libs_arch, "libs_zoning": libs_zoning, "libs_green": libs_green,
-            "libs_pdf": libs_pdf, "libs_export": libs_export,
-            "libs_bim_importer": libs_bim_importer,
-            "libs_loader": libs_loader
-        }
+        # Menampilkan pesan aman kepada pengguna
+        st.info("🛡️ **Mode Keamanan Aktif (Gov. Ready):** Eksekusi kode otomatis dari AI telah diblokir oleh sistem untuk mencegah server crash.")
         
-        if 'libs_fem' in globals(): library_kits['libs_fem'] = libs_fem
-        if 'libs_beton' in globals(): library_kits['libs_beton'] = libs_beton
-        if has_geotek:
-            library_kits['libs_geoteknik'] = libs_geoteknik
-            library_kits['libs_pondasi'] = libs_pondasi
-        # [BARU] Suntikkan MEP ke dalam environment AI
-        if has_mep:
-            library_kits['libs_mep'] = libs_mep
-        if has_legal:
-            library_kits['libs_legal'] = libs_legal    
-        local_vars.update(library_kits)
-
-        if has_4d:
-            library_kits['libs_4d'] = libs_4d
-        if has_transport:
-            library_kits['libs_transport'] = libs_transport
-        if file_ifc_path: 
-            local_vars["file_ifc_user"] = file_ifc_path
-        
-        exec(code_str, local_vars)
-        
-        for k, v in local_vars.items():
-            if k not in library_kits and not k.startswith('__') and not isinstance(v, types.ModuleType):
-                st.session_state.shared_execution_vars[k] = v
         return True
 
     except Exception as e:
-        with st.expander("⚠️ Detail Teknis (Ada kendala pada script ini)", expanded=False):
+        with st.expander("⚠️ Detail Teknis", expanded=False):
+            st.warning(f"Sistem mendeteksi ketidaksesuaian: {e}")
+        return False
+# ==========================================
+# 4. ENGINE EKSEKUSI KODE (SAFE MODE - AUDIT COMPLIANT)
+# ==========================================
+if 'shared_execution_vars' not in st.session_state:
+    st.session_state.shared_execution_vars = {}
+
+def execute_generated_code(code_str, file_ifc_path=None):
+    """
+    Fungsi eksekusi dinamis (exec) DIMATIKAN secara permanen 
+    sesuai rekomendasi Audit Forensik (Pencegahan Server Deadlock & Injection).
+    """
+    try:
+        # Kita tetap memperbolehkan UI mengekstrak variabel statis jika diperlukan,
+        # tetapi DILARANG KERAS mengeksekusi instruksi dari AI menggunakan exec().
+        
+        # Menampilkan pesan aman kepada pengguna
+        st.info("🛡️ **Mode Keamanan Aktif (Gov. Ready):** Eksekusi kode otomatis dari AI telah diblokir oleh sistem untuk mencegah server crash.")
+        
+        return True
+
+    except Exception as e:
+        with st.expander("⚠️ Detail Teknis", expanded=False):
             st.warning(f"Sistem mendeteksi ketidaksesuaian: {e}")
         return False
 
@@ -1351,6 +1335,7 @@ with st.sidebar:
         st.error(f"Gagal menyiapkan Excel: {e}")
         
    
+
 
 
 
